@@ -1,85 +1,118 @@
-// ==UserScript==
-// @name         Blooket Gold Quest - Auto-Answer & Chests
+// ==UserUserScript==
+// @name         Gimkit Answer Logger & Highlighter
 // @namespace    http://tampermonkey.net/
-// @version      2.1
-// @description  Automatically answers correctly and opens chests in Gold Quest mode.
-// @author       Gemini / qaiik
-// @match        *://*.blooket.com/*
+// @version      1.0
+// @description  Saves correct answers and highlights them in subsequent rounds.
+// @author       Assistant
+// @match        *://*.gimkit.com/*
 // @grant        none
-// @run-at       document-start
 // ==/UserScript==
 
 (function() {
-    'use strict';
+    "use strict";
 
-    let gameData = {};
-
-    // --- 1. DATA CAPTURE (The blkt-reader core) ---
-    const originalOpen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function() {
-        if (arguments[1].includes("api/games?gameId=")) {
-            this.addEventListener('load', function() {
-                try {
-                    gameData = JSON.parse(this.responseText);
-                    console.log("✔️ Game data loaded successfully.");
-                } catch (e) {
-                    console.error("❌ Error parsing game data.");
-                }
-            });
-        }
-        originalOpen.apply(this, arguments);
+    // CSS Class Mapping (Gimkit often obfuscates these; these match your source script)
+    const classes = {
+        "a$": "bUshEA",
+        "YM": "ihVPuW",
+        "wv": "imvEeI",
+        "Wr": "hitgke",
+        "yt": "iGaLUl",
+        "iH": "cuMdqS",
+        "Rw": "ZMQKI"
     };
 
-    // Helper to find correct answer
-    function getAnswer(question) {
-        if (!gameData.questions) return null;
-        const q = gameData.questions.find(e => e.question === question);
-        return q ? q.correctAnswers[0] : null;
+    let savedAnswers = [];
+    let scriptRunning = false;
+
+    // --- Helper Functions ---
+
+    function isInputPresent() {
+        return document.getElementsByClassName(classes.iH).length > 0;
     }
 
-    // --- 2. AUTOMATION LOOP ---
-    setInterval(() => {
-        // A. Handle Questions
-        const questionText = document.querySelector('[class*="questionText"] div');
-        if (questionText) {
-            const answer = getAnswer(questionText.innerText);
-            if (answer) {
-                const buttons = document.querySelectorAll('[class*="answersHolder"] [class*="answerContainer"]');
-                buttons.forEach(btn => {
-                    if (btn.innerText === answer) {
-                        btn.click();
-                    }
-                });
+    function saveAnswer(question, answer) {
+        if (savedAnswers.some(item => item.question === question)) return;
+        savedAnswers.push({ question, answer });
+        console.log("Answer Saved:", answer);
+    }
+
+    function isCorrectResponse() {
+        // Checks if the 'correct' feedback element is visible
+        const wrongElem = document.getElementsByClassName(classes.Wr).length > 0;
+        const rightElem = document.getElementsByClassName(classes.yt).length > 0;
+        return !wrongElem && rightElem;
+    }
+
+    function getSavedAnswer(question) {
+        const found = savedAnswers.find(item => item.question === question);
+        return found ? found.answer : null;
+    }
+
+    // --- Core Logic ---
+
+    function handleTextInput() {
+        let inputField = document.getElementsByClassName(classes.iH)[0];
+        let submitBtn = document.getElementsByClassName(classes.Rw)[0];
+        let questionText = document.getElementsByClassName(classes.wv)[0].innerText;
+        
+        let previousAnswer = getSavedAnswer(questionText);
+        if (previousAnswer) {
+            inputField.placeholder = previousAnswer;
+        }
+
+        const logState = () => {
+            setTimeout(() => {
+                if (isCorrectResponse()) saveAnswer(questionText, inputField.value);
+            }, 250);
+        };
+
+        submitBtn.addEventListener("mouseup", logState);
+        inputField.addEventListener("keyup", (e) => {
+            if (e.keyCode === 13) logState();
+        });
+    }
+
+    function handleMultipleChoice() {
+        let options = document.getElementsByClassName(classes.YM);
+        let questionText = document.getElementsByClassName(classes.wv)[0].innerText;
+        let knownAnswer = getSavedAnswer(questionText);
+
+        for (let i = 0; i < options.length; i++) {
+            options[i].addEventListener("mouseup", () => {
+                let chosenAnswer = options[i].innerText;
+                setTimeout(() => {
+                    if (isCorrectResponse()) saveAnswer(questionText, chosenAnswer);
+                }, 250);
+            });
+
+            // Highlight the answer if we already know it
+            if (options[i].innerText === knownAnswer) {
+                options[i].style.transform = "scale(1.3)";
+                options[i].style.transition = "transform 0.2s";
+                options[i].style.zIndex = "1000";
             }
         }
+    }
 
-        // B. Handle Feedback (The "Correct" checkmark screen)
-        const checkmark = document.querySelector(".fa-check") || document.querySelector('[class*="feedback"]');
-        if (checkmark) {
-            checkmark.click();
-        }
+    // --- Main Loop ---
 
-        // C. Gold Quest: Open Chests
-        // This looks for the chest containers specific to Gold Quest
-        const chests = document.querySelectorAll('[class*="styles__container___"], [class*="styles__chest___"]');
-        if (chests.length > 0) {
-            // Click the first chest available (Gold Quest doesn't let you see inside them without ESP)
-            chests[0].click();
-        }
+    function init() {
+        if (window.location.href.split(".")[1] !== "gimkit") return;
+        
+        console.log("Gimkit Logger Active: Answer questions to build cache.");
+        
+        setInterval(() => {
+            if (document.getElementsByClassName(classes["a$"]).length > 0) {
+                if (isInputPresent()) {
+                    handleTextInput();
+                } else {
+                    handleMultipleChoice();
+                }
+            }
+        }, 1000); // Check every second
+    }
 
-        // D. Skip "No Gold" or "OK" Modals
-        const modalBtn = document.querySelector('[class*="modal"] button') || document.querySelector('[class*="styles__pageButton"]');
-        if (modalBtn) {
-            modalBtn.click();
-        }
-
-    }, 250); // Checks every 250ms
-
-    // --- 3. UI TWEAK (Optional) ---
-    // Injects a small indicator so you know the script is active.
-    const indicator = document.createElement('div');
-    indicator.innerHTML = '👑 GOLD QUEST ACTIVE';
-    indicator.style = "position:fixed;bottom:10px;right:10px;background:gold;color:black;padding:5px 10px;font-weight:bold;border-radius:5px;z-index:9999;font-family:sans-serif;font-size:12px;pointer-events:none;";
-    document.body.appendChild(indicator);
-
+    // Run the script
+    init();
 })();
